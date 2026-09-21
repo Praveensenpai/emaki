@@ -46,7 +46,7 @@ fn default_max_cache_gb() -> u64 {
 }
 
 fn default_max_size_mb() -> u64 {
-    50
+    500
 }
 
 fn default_caption_prefix() -> String {
@@ -98,6 +98,7 @@ mod tests {
         assert_eq!(cfg.session_db, PathBuf::from("emaki.db"));
         assert_eq!(cfg.cache_dir, PathBuf::from("cache"));
         assert_eq!(cfg.max_cache_size_gb, 5);
+        assert_eq!(cfg.max_file_size_mb, 500);
         assert!(cfg.whitelist_groups.is_empty());
         assert!(cfg.is_group_allowed("any_group@g.us"));
     }

@@ -191,7 +191,7 @@ whitelist_groups = [
 temp_dir = "/tmp"
 
 # Maximum download file size in MB
-max_file_size_mb = 50
+max_file_size_mb = 500
 
 # Custom caption prepended to uploaded reels
 caption_prefix = "🎬 Reel via 絵巻"

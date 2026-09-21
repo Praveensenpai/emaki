@@ -18,8 +18,8 @@ whitelist_groups = []
 # Directory for temporary video buffering
 temp_dir = "/tmp"
 
-# Maximum download file size in MB (WhatsApp supports up to 64-100MB)
-max_file_size_mb = 50
+# Maximum download file size in MB
+max_file_size_mb = 500
 
 # Video caption prefix sent with the reel
 caption_prefix = "🎬 Reel via 絵巻"

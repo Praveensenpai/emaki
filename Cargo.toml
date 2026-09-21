@@ -1,6 +1,6 @@
 [package]
 name = "emaki"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 description = "絵巻 — Ultra-lightweight, zero-overhead WhatsApp daemon for instant Instagram Reel streaming"
 authors = ["Praveensenpai"]

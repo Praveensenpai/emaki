@@ -56,7 +56,7 @@
   pub type Result<T> = std::result::Result<T, EmakiError>;
   ```
 
-### `src/config.rs` (Role: infra, Lines: 118)
+### `src/config.rs` (Role: infra, Lines: 119)
 - **Responsibility**: TOML configuration deserialization and group whitelist verification.
 - **Imports**: `crate::error::{EmakiError, Result}`, `serde::{Deserialize, Serialize}`, `std::path::{Path, PathBuf}`.
 - **Types & Enums**:
