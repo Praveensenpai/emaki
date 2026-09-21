@@ -1,0 +1,19 @@
+# 絵巻 (Emaki) Configuration File
+
+# Path to the SQLite session database (stores WhatsApp Web credentials & keys)
+session_db = "emaki.db"
+
+# WhatsApp Group Whitelist
+# Leave empty ([]) to allow any group where the bot is added.
+# To restrict to specific groups, add their JIDs:
+# whitelist_groups = ["120363024819283746@g.us"]
+whitelist_groups = []
+
+# Directory for temporary video buffering (cleaned up immediately after upload)
+temp_dir = "/tmp"
+
+# Maximum download file size in MB (WhatsApp supports up to 64-100MB)
+max_file_size_mb = 50
+
+# Video caption prefix sent with the reel
+caption_prefix = "🎬 Reel via 絵巻"

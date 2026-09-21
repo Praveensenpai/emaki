@@ -1,0 +1,8 @@
+/target
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+emaki.db*
+*.mp4
+/tmp/
