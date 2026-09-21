@@ -13,13 +13,22 @@ pub struct DownloadedVideo {
 pub struct ReelDownloader {
     temp_dir: PathBuf,
     max_size_bytes: u64,
+    cookies_file: Option<PathBuf>,
+    proxy: Option<String>,
 }
 
 impl ReelDownloader {
-    pub fn new(temp_dir: impl AsRef<Path>, max_size_mb: u64) -> Self {
+    pub fn new(
+        temp_dir: impl AsRef<Path>,
+        max_size_mb: u64,
+        cookies_file: Option<PathBuf>,
+        proxy: Option<String>,
+    ) -> Self {
         Self {
             temp_dir: temp_dir.as_ref().to_path_buf(),
             max_size_bytes: max_size_mb * 1024 * 1024,
+            cookies_file,
+            proxy,
         }
     }
 
@@ -54,12 +63,24 @@ impl ReelDownloader {
         let video_path = PathBuf::from(format!("{}.mp4", base_path.display()));
         let info_path = PathBuf::from(format!("{}.info.json", base_path.display()));
 
-        let status = Command::new("yt-dlp")
-            .arg("--no-warnings")
+        let mut cmd = Command::new("yt-dlp");
+        cmd.arg("--no-warnings")
             .arg("--no-playlist")
             .arg("--write-info-json")
             .arg("-f")
-            .arg("b[ext=mp4]/best[ext=mp4]/best")
+            .arg("b[ext=mp4]/best[ext=mp4]/best");
+
+        if let Some(ref cookies) = self.cookies_file {
+            if cookies.exists() {
+                cmd.arg("--cookies").arg(cookies);
+            }
+        }
+
+        if let Some(ref proxy) = self.proxy {
+            cmd.arg("--proxy").arg(proxy);
+        }
+
+        let status = cmd
             .arg("-o")
             .arg(&output_tmpl)
             .arg(reel_url)

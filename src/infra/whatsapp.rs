@@ -27,9 +27,12 @@ pub struct WhatsAppBot {
 
 impl WhatsAppBot {
     pub fn new(config: Config) -> Self {
+        let cookies_file = config.resolved_cookies_file();
         let downloader = Arc::new(ReelDownloader::new(
             &config.temp_dir,
             config.max_file_size_mb,
+            cookies_file,
+            config.proxy.clone(),
         ));
         let cache = Arc::new(ReelCache::new(&config.cache_dir, config.max_cache_size_gb));
         Self {

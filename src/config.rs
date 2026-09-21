@@ -27,6 +27,12 @@ pub struct Config {
 
     #[serde(default = "default_caption_prefix")]
     pub caption_prefix: String,
+
+    #[serde(default)]
+    pub cookies_file: Option<PathBuf>,
+
+    #[serde(default)]
+    pub proxy: Option<String>,
 }
 
 pub fn default_emaki_dir() -> PathBuf {
@@ -72,6 +78,8 @@ impl Default for Config {
             max_cache_size_gb: default_max_cache_gb(),
             max_file_size_mb: default_max_size_mb(),
             caption_prefix: default_caption_prefix(),
+            cookies_file: None,
+            proxy: None,
         }
     }
 }
@@ -144,16 +152,32 @@ impl Config {
             "cache_dir" => {
                 self.cache_dir = PathBuf::from(value);
             }
-            "session_db" => {
-                self.session_db = PathBuf::from(value);
+            "cookies_file" => {
+                self.cookies_file = Some(PathBuf::from(value));
+            }
+            "proxy" => {
+                self.proxy = Some(value.to_string());
             }
             unknown => {
                 return Err(EmakiError::Config(format!(
-                    "Unknown key: '{unknown}'. Valid keys: max_file_size_mb, max_cache_size_gb, caption_prefix, temp_dir, cache_dir, session_db"
+                    "Unknown key: '{unknown}'. Valid keys: max_file_size_mb, max_cache_size_gb, caption_prefix, temp_dir, cache_dir, session_db, cookies_file, proxy"
                 )));
             }
         }
         Ok(())
+    }
+
+    pub fn resolved_cookies_file(&self) -> Option<PathBuf> {
+        if let Some(ref path) = self.cookies_file {
+            if path.exists() {
+                return Some(path.clone());
+            }
+        }
+        let default_cookies = default_emaki_dir().join("cookies.txt");
+        if default_cookies.exists() {
+            return Some(default_cookies);
+        }
+        None
     }
 
     pub fn add_whitelist_group(&mut self, jid: String) -> bool {
@@ -242,10 +266,29 @@ mod tests {
         assert!(cfg.set_value("max_file_size_mb", "invalid").is_err());
         assert!(cfg.set_value("non_existent_key", "val").is_err());
 
+        cfg.set_value("cookies_file", "/tmp/cookies.txt").unwrap();
+        assert_eq!(cfg.cookies_file, Some(PathBuf::from("/tmp/cookies.txt")));
+
+        cfg.set_value("proxy", "http://127.0.0.1:8080").unwrap();
+        assert_eq!(cfg.proxy, Some("http://127.0.0.1:8080".to_string()));
+
         assert!(cfg.add_whitelist_group("grp1@g.us".into()));
         assert!(!cfg.add_whitelist_group("grp1@g.us".into()));
         assert!(cfg.is_group_allowed("grp1@g.us"));
         assert!(cfg.remove_whitelist_group("grp1@g.us"));
         assert!(!cfg.remove_whitelist_group("grp1@g.us"));
+    }
+
+    #[test]
+    fn test_resolved_cookies_fallback() {
+        let mut cfg = Config::default();
+        assert_eq!(cfg.resolved_cookies_file(), None);
+
+        let temp_dir = std::env::temp_dir();
+        let cookie_path = temp_dir.join("test_emaki_cookies.txt");
+        let _ = std::fs::write(&cookie_path, "cookie_data");
+        cfg.cookies_file = Some(cookie_path.clone());
+        assert_eq!(cfg.resolved_cookies_file(), Some(cookie_path.clone()));
+        let _ = std::fs::remove_file(&cookie_path);
     }
 }

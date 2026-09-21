@@ -209,6 +209,12 @@ emaki config set max_cache_size_gb 10
 
 # Set custom caption prefix
 emaki config set caption_prefix "🎬 Shared Reel"
+
+# Set custom cookies file for Instagram rate-limit bypass
+emaki config set cookies_file ~/.emaki/cookies.txt
+
+# Set HTTP/SOCKS proxy for downloads (optional)
+emaki config set proxy "http://127.0.0.1:8080"
 ```
 
 ### 3. Restrict to Specific Groups (Whitelist)
@@ -224,13 +230,26 @@ emaki whitelist list
 emaki whitelist remove 120363024819283746@g.us
 ```
 
+### 4. 🍪 VPS / Datacenter IP Bypass (Cookies & Proxy)
+Cloud and VPS providers (Hetzner, DigitalOcean, AWS, etc.) often face Instagram's datacenter IP block:
+> `ERROR: [Instagram] Requested content is not available, rate-limit reached or login required.`
+
+Emaki solves this automatically:
+1. Export your browser cookies into a standard Netscape `cookies.txt` format (e.g. using the *"Get cookies.txt LOCALLY"* browser extension).
+2. Save or upload it to `~/.emaki/cookies.txt` on your server:
+   ```bash
+   scp cookies.txt user@vps:~/.emaki/cookies.txt
+   ```
+3. Emaki will **automatically detect and attach** `~/.emaki/cookies.txt` to all `yt-dlp` download requests! You can verify its active status via `emaki status`.
+
 ---
 
 ## 🛡️ Best Practices & Anti-Ban Tips
 
 - **Whitelist Only**: Keep `whitelist_groups` configured to only your private friends' group.
 - **Pacing is Built-in**: The bot enforces a 3-second delay between video deliveries and suppresses burst emoji reactions.
-- **Transferring to VPS**: Pair locally using `emaki login`, then copy `emaki.db` to your remote server (`scp emaki.db user@remote:/path/to/`). The remote daemon will boot immediately without needing a QR scan!
+- **Transferring to VPS**: Pair locally using `emaki login`, then copy `emaki.db` to your remote server (`scp emaki.db user@remote:~/.emaki/`). The remote daemon will boot immediately without needing a QR scan!
+- **Cloud Datacenter IPs**: If hosted on a VPS, copy `cookies.txt` to `~/.emaki/cookies.txt` so `yt-dlp` bypasses Instagram login walls.
 
 ---
 

@@ -56,8 +56,8 @@
   pub type Result<T> = std::result::Result<T, EmakiError>;
   ```
 
-### `src/config.rs` (Role: infra, Lines: 251)
-- **Responsibility**: TOML configuration deserialization, group whitelist verification, CLI mutation helpers, and automatic `~/.emaki/` resolution.
+### `src/config.rs` (Role: infra, Lines: 294)
+- **Responsibility**: TOML configuration deserialization, group whitelist verification, CLI mutation helpers, automatic `~/.emaki/` resolution, cookies file resolution, and proxy settings.
 - **Imports**: `crate::error::{EmakiError, Result}`, `serde::{Deserialize, Serialize}`, `std::path::{Path, PathBuf}`.
 - **Types & Enums**:
   ```rust
@@ -70,6 +70,8 @@
       pub max_cache_size_gb: u64,
       pub max_file_size_mb: u64,
       pub caption_prefix: String,
+      pub cookies_file: Option<PathBuf>,
+      pub proxy: Option<String>,
   }
   pub fn default_emaki_dir() -> PathBuf;
   impl Config {
@@ -80,6 +82,7 @@
       pub fn active_config_path() -> PathBuf;
       pub fn save_to_file(&self, path: impl AsRef<Path>) -> Result<()>;
       pub fn set_value(&mut self, key: &str, value: &str) -> Result<()>;
+      pub fn resolved_cookies_file(&self) -> Option<PathBuf>;
       pub fn add_whitelist_group(&mut self, jid: String) -> bool;
       pub fn remove_whitelist_group(&mut self, jid: &str) -> bool;
       pub fn ensure_directories(&self) -> Result<()>;
@@ -107,9 +110,9 @@
   pub fn format_caption(uploader: Option<&str>, description: Option<&str>, canonical_url: &str) -> String;
   ```
 
-### `src/infra.rs` (Role: infra, Lines: 6)
+### `src/infra.rs` (Role: infra, Lines: 12)
 - **Responsibility**: Declares and re-exports infrastructure drivers.
-- **Exports**: `WhatsAppBot`.
+- **Exports**: `CompletionGenerator`, `DaemonManager`, `ReelCache`, `ReelDownloader`, `ServiceManager`, `WhatsAppBot`, `render_terminal_qr`.
 
 ### `src/infra/cache.rs` (Role: infra, Lines: 174)
 - **Responsibility**: 5GB LRU local caching for video files and JSON metadata with physical file existence validation.
@@ -135,8 +138,8 @@
   pub fn render_terminal_qr(code: &str, timeout_secs: u64) -> Result<()>;
   ```
 
-### `src/infra/downloader.rs` (Role: infra, Lines: 123)
-- **Responsibility**: Asynchronous invocation of `yt-dlp` CLI with 3 retries, backoff, metadata extraction (`.info.json`), size boundary validation, and disk cleanup.
+### `src/infra/downloader.rs` (Role: infra, Lines: 144)
+- **Responsibility**: Asynchronous invocation of `yt-dlp` CLI with 3 retries, backoff, cookies support, proxy support, metadata extraction (`.info.json`), size boundary validation, and disk cleanup.
 - **Imports**: `crate::error::{EmakiError, Result}`, `tokio::process::Command`, `std::path::{Path, PathBuf}`, `std::time::{Duration, SystemTime, UNIX_EPOCH}`.
 - **Types & Enums**:
   ```rust
@@ -148,9 +151,16 @@
   pub struct ReelDownloader {
       temp_dir: PathBuf,
       max_size_bytes: u64,
+      cookies_file: Option<PathBuf>,
+      proxy: Option<String>,
   }
   impl ReelDownloader {
-      pub fn new(temp_dir: impl AsRef<Path>, max_size_mb: u64) -> Self;
+      pub fn new(
+          temp_dir: impl AsRef<Path>,
+          max_size_mb: u64,
+          cookies_file: Option<PathBuf>,
+          proxy: Option<String>,
+      ) -> Self;
       pub async fn download(&self, reel_id: &str, reel_url: &str) -> Result<DownloadedVideo>;
   }
   ```
@@ -197,7 +207,7 @@
   }
   ```
 
-### `src/infra/whatsapp.rs` (Role: infra, Lines: 259)
+### `src/infra/whatsapp.rs` (Role: infra, Lines: 262)
 - **Responsibility**: WhatsApp bot lifecycle, session verification, interactive login, mpsc queue worker with 3s cooldown gap, 5GB LRU cache integration, formatted caption composition, and encrypted media upload without burst reactions.
 - **Imports**: `whatsapp_rust::prelude::*`, `whatsapp_rust::download::MediaType`, `whatsapp_rust::media::{video_message, VideoOptions}`, `whatsapp_rust::upload::UploadOptions`, `tokio::sync::mpsc::{channel, Sender}`.
 - **Types & Enums**:
@@ -219,7 +229,7 @@
   }
   ```
 
-### `src/main.rs` (Role: entrypoint, Lines: 323)
+### `src/main.rs` (Role: entrypoint, Lines: 340)
 - **Responsibility**: Subcommand routing (`login`, `daemon`, `stop`, `logs`, `status`, `config`, `whitelist`, `service`, `completion`, `help`), session checks, logging subscriber configuration, and graceful exit orchestration.
 - **Imports**: `tracing_subscriber::{fmt, EnvFilter}`, `infra::{CompletionGenerator, DaemonManager, ServiceManager, WhatsAppBot}`, `config::Config`.
 - **Functions**:

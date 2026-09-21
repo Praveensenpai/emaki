@@ -146,6 +146,12 @@ async fn print_status(config: &Config) -> Result<()> {
         }
     }
 
+    if let Some(ref cookies) = config.resolved_cookies_file() {
+        println!("  🍪 Cookies File     : {:?} (Active)", cookies.display());
+    } else {
+        println!("  🍪 Cookies File     : None (~/.emaki/cookies.txt recommended for VPS)");
+    }
+
     let cache_size = compute_dir_size(&config.cache_dir).await;
     println!(
         "  🗄️ Cache Directory  : {:?} ({} MB / {} GB limit)",
@@ -186,6 +192,17 @@ async fn handle_config_command(args: &[String], config: &mut Config) -> Result<(
             println!("  🎥 Max File Size     : {} MB", config.max_file_size_mb);
             println!("  🎬 Caption Prefix    : \"{}\"", config.caption_prefix);
             println!("  📂 Temp Directory    : {:?}", config.temp_dir.display());
+            let cookies = config.resolved_cookies_file();
+            println!(
+                "  🍪 Cookies File      : {}",
+                match cookies {
+                    Some(ref p) => format!("{:?} (Active)", p.display()),
+                    None => "None (~/.emaki/cookies.txt)".to_string(),
+                }
+            );
+            if let Some(ref p) = config.proxy {
+                println!("  🌐 Proxy             : {p}");
+            }
             println!(
                 "  🔒 Whitelisted Groups: {}",
                 if config.whitelist_groups.is_empty() {
@@ -207,7 +224,7 @@ async fn handle_config_command(args: &[String], config: &mut Config) -> Result<(
                 }
                 _ => {
                     eprintln!("Usage: emaki config set <key> <value>");
-                    eprintln!("Valid keys: max_file_size_mb, max_cache_size_gb, caption_prefix, temp_dir, cache_dir, session_db");
+                    eprintln!("Valid keys: max_file_size_mb, max_cache_size_gb, caption_prefix, temp_dir, cache_dir, session_db, cookies_file, proxy");
                     std::process::exit(1);
                 }
             }
