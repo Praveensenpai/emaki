@@ -133,7 +133,46 @@ emaki daemon
 
 ## 🐧 Run as a 24/7 Linux Service (Systemd)
 
-Create a systemd service file at `/etc/systemd/system/emaki.service`:
+### Option A: User Service (Recommended, No Root Required)
+
+Since `install.sh` installs into `~/.local/bin/emaki`, the cleanest method is a systemd user service:
+
+1. Create `~/.config/systemd/user/emaki.service`:
+```ini
+[Unit]
+Description=絵巻 (Emaki) WhatsApp Reel Daemon
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h
+ExecStart=%h/.local/bin/emaki daemon
+Restart=always
+RestartSec=5
+Environment=RUST_LOG=info
+
+[Install]
+WantedBy=default.target
+```
+
+2. Enable, start, and allow background persistence across reboots:
+```bash
+mkdir -p ~/.config/systemd/user
+systemctl --user daemon-reload
+systemctl --user enable --now emaki
+loginctl enable-linger $USER
+```
+
+3. View live logs:
+```bash
+journalctl --user -u emaki -f
+```
+
+---
+
+### Option B: System Service (Root / Multi-User)
+
+Create `/etc/systemd/system/emaki.service`:
 
 ```ini
 [Unit]
@@ -142,9 +181,9 @@ After=network.target
 
 [Service]
 Type=simple
-User=paisen
-WorkingDirectory=/home/paisen/Projects/emaki
-ExecStart=/home/paisen/.local/bin/emaki daemon
+User=<your-username>
+WorkingDirectory=/home/<your-username>
+ExecStart=/home/<your-username>/.local/bin/emaki daemon
 Restart=always
 RestartSec=5
 Environment=RUST_LOG=info
@@ -157,10 +196,6 @@ Enable and start:
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now emaki
-```
-
-View live logs:
-```bash
 journalctl -u emaki -f
 ```
 
