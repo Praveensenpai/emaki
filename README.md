@@ -201,35 +201,40 @@ journalctl -u emaki -f
 
 ---
 
-## ⚙️ Configuration (`emaki.toml`)
+## ⚙️ Configuration (Zero-Manual CLI Management)
 
-Create an optional `emaki.toml` file in the working directory:
+Emaki requires **zero manual file creation**. On first run, it automatically initializes sensible defaults inside `~/.emaki/emaki.toml`.
 
-```toml
-# Path to the SQLite session database
-session_db = "emaki.db"
+Manage all settings directly from your terminal without opening any files:
 
-# Local cache directory for instant re-sharing of viral reels
-cache_dir = "cache"
+### 1. View Active Configuration
+```bash
+emaki config
+```
 
-# Maximum cache size in gigabytes before auto-pruning oldest files (LRU)
-max_cache_size_gb = 5
+### 2. Modify Settings via CLI
+```bash
+# Set download file size limit in MB (default: 500)
+emaki config set max_file_size_mb 250
 
-# WhatsApp Group Whitelist
-# Leave empty ([]) to respond in any group where the bot is present.
-# To restrict to specific groups, specify their JIDs:
-whitelist_groups = [
-  # "12036302XXXXXXXXXX@g.us"
-]
+# Set maximum LRU cache limit in GB (default: 5)
+emaki config set max_cache_size_gb 10
 
-# Temporary video buffering path
-temp_dir = "/tmp"
+# Set custom caption prefix
+emaki config set caption_prefix "🎬 Shared Reel"
+```
 
-# Maximum download file size in MB
-max_file_size_mb = 500
+### 3. Restrict to Specific Groups (Whitelist)
+By default, the bot responds in any group where it is a member. You can restrict it via CLI:
+```bash
+# Add a group JID to whitelist
+emaki whitelist add 120363024819283746@g.us
 
-# Custom caption prepended to uploaded reels
-caption_prefix = "🎬 Reel via 絵巻"
+# List all whitelisted groups
+emaki whitelist list
+
+# Remove a group from whitelist
+emaki whitelist remove 120363024819283746@g.us
 ```
 
 ---

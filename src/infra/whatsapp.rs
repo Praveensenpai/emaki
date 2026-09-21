@@ -60,6 +60,7 @@ impl WhatsAppBot {
     }
 
     pub async fn start_login(&self) -> Result<()> {
+        self.config.ensure_directories()?;
         let db_path = self.config.session_db.to_str().unwrap_or("emaki.db");
         let store = SqliteStore::new(db_path)
             .await

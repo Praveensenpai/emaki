@@ -22,7 +22,8 @@ async fn main() -> Result<()> {
 
     print_banner();
 
-    let config = Config::load_or_default("emaki.toml");
+    let mut config = Config::load_auto();
+    config.ensure_directories()?;
     let bot = WhatsAppBot::new(config.clone());
 
     match command {
@@ -32,6 +33,12 @@ async fn main() -> Result<()> {
         }
         "status" => {
             print_status(&config).await?;
+        }
+        "config" => {
+            handle_config_command(&args, &mut config).await?;
+        }
+        "whitelist" => {
+            handle_whitelist_command(&args, &mut config).await?;
         }
         "daemon" | "run" => {
             info!("Running in background daemon mode...");
@@ -90,20 +97,132 @@ async fn compute_dir_size(dir: &std::path::Path) -> u64 {
     total
 }
 
+async fn handle_config_command(args: &[String], config: &mut Config) -> Result<()> {
+    let active_path = Config::active_config_path();
+    let sub = args.get(2).map(|s| s.as_str()).unwrap_or("show");
+
+    match sub {
+        "show" | "list" => {
+            println!("⚙️  Emaki Configuration");
+            println!("───────────────────────────────────────────");
+            println!("  📄 Config File       : {:?}", active_path.display());
+            println!("  📁 Session Database  : {:?}", config.session_db.display());
+            println!("  🗄️ Cache Directory   : {:?}", config.cache_dir.display());
+            println!("  📦 Max Cache Size    : {} GB", config.max_cache_size_gb);
+            println!("  🎥 Max File Size     : {} MB", config.max_file_size_mb);
+            println!("  🎬 Caption Prefix    : \"{}\"", config.caption_prefix);
+            println!("  📂 Temp Directory    : {:?}", config.temp_dir.display());
+            println!(
+                "  🔒 Whitelisted Groups: {}",
+                if config.whitelist_groups.is_empty() {
+                    "All groups allowed (unrestricted)".to_string()
+                } else {
+                    format!("{} group(s)", config.whitelist_groups.len())
+                }
+            );
+            println!("───────────────────────────────────────────");
+        }
+        "set" => {
+            let key = args.get(3).map(|s| s.as_str());
+            let val = args.get(4).map(|s| s.as_str());
+            match (key, val) {
+                (Some(k), Some(v)) => {
+                    config.set_value(k, v)?;
+                    config.save_to_file(&active_path)?;
+                    println!("✅ Set '{k}' = '{v}' in {:?}", active_path.display());
+                }
+                _ => {
+                    eprintln!("Usage: emaki config set <key> <value>");
+                    eprintln!("Valid keys: max_file_size_mb, max_cache_size_gb, caption_prefix, temp_dir, cache_dir, session_db");
+                    std::process::exit(1);
+                }
+            }
+        }
+        unknown => {
+            eprintln!("Unknown config action: '{unknown}'. Use 'emaki config' or 'emaki config set <key> <value>'");
+            std::process::exit(1);
+        }
+    }
+    Ok(())
+}
+
+async fn handle_whitelist_command(args: &[String], config: &mut Config) -> Result<()> {
+    let active_path = Config::active_config_path();
+    let sub = args.get(2).map(|s| s.as_str()).unwrap_or("list");
+
+    match sub {
+        "list" | "show" => {
+            println!("🔒 WhatsApp Group Whitelist");
+            println!("───────────────────────────────────────────");
+            if config.whitelist_groups.is_empty() {
+                println!("  (No whitelist configured — bot responds in ALL groups where added)");
+            } else {
+                for (i, jid) in config.whitelist_groups.iter().enumerate() {
+                    println!("  {}. {jid}", i + 1);
+                }
+            }
+            println!("───────────────────────────────────────────");
+        }
+        "add" => match args.get(3).map(|s| s.as_str()) {
+            Some(j) => {
+                if config.add_whitelist_group(j.to_string()) {
+                    config.save_to_file(&active_path)?;
+                    println!("✅ Added '{j}' to whitelist in {:?}", active_path.display());
+                } else {
+                    println!("ℹ️  Group '{j}' is already in the whitelist");
+                }
+            }
+            None => {
+                eprintln!("Usage: emaki whitelist add <group_jid>");
+                std::process::exit(1);
+            }
+        },
+        "remove" | "rm" => match args.get(3).map(|s| s.as_str()) {
+            Some(j) => {
+                if config.remove_whitelist_group(j) {
+                    config.save_to_file(&active_path)?;
+                    println!(
+                        "✅ Removed '{j}' from whitelist in {:?}",
+                        active_path.display()
+                    );
+                } else {
+                    eprintln!("❌ Group '{j}' not found in whitelist");
+                }
+            }
+            None => {
+                eprintln!("Usage: emaki whitelist remove <group_jid>");
+                std::process::exit(1);
+            }
+        },
+        unknown => {
+            eprintln!("Unknown whitelist action: '{unknown}'. Use: emaki whitelist [list | add <jid> | remove <jid>]");
+            std::process::exit(1);
+        }
+    }
+    Ok(())
+}
+
 fn print_help() {
     println!(
-        r#"Usage: emaki [COMMAND]
+        r#"Usage: emaki [COMMAND] [OPTIONS]
 
 Commands:
-  login     Start interactive QR pairing to authenticate with WhatsApp
-  daemon    Start the background reel relay daemon (verifies session first)
-  status    Check login credentials status and 5GB cache storage usage
-  help      Display this help menu
+  login                 Start interactive QR pairing to authenticate with WhatsApp
+  daemon                Start the background reel relay daemon (verifies session first)
+  status                Check login credentials status and 5GB cache storage usage
+  config [show|set]     View or update configuration settings (e.g. max_file_size_mb)
+  whitelist [list|add|remove]
+                        Manage whitelisted WhatsApp group JIDs
+  help                  Display this help menu
 
 Examples:
-  emaki login      # Scan QR code on your local terminal
-  emaki daemon     # Run as a daemon (systemd or foreground)
-  emaki status     # Check if session credentials are valid
+  emaki login                                   # Scan QR code on your terminal
+  emaki daemon                                  # Run 24/7 background relay daemon
+  emaki status                                  # Verify WhatsApp credentials
+  emaki config                                  # Inspect active configuration
+  emaki config set max_file_size_mb 200         # Update file size limit
+  emaki whitelist add 120363024819283746@g.us   # Allow only this group
+  emaki whitelist list                          # List whitelisted groups
 "#
     );
 }

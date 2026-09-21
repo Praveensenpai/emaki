@@ -4,7 +4,7 @@
 
 ## 1. System Topology & Data Flow
 ```text
-[CLI: login | daemon | status]
+[CLI: login | daemon | status | config | whitelist]
        │
        ├── login  ──> [WhatsAppBot::start_login] (Interactive QR pairing -> exits on auth)
        ├── status ──> [WhatsAppBot::check_login_status] + Cache size computation
@@ -56,8 +56,8 @@
   pub type Result<T> = std::result::Result<T, EmakiError>;
   ```
 
-### `src/config.rs` (Role: infra, Lines: 119)
-- **Responsibility**: TOML configuration deserialization and group whitelist verification.
+### `src/config.rs` (Role: infra, Lines: 251)
+- **Responsibility**: TOML configuration deserialization, group whitelist verification, CLI mutation helpers, and automatic `~/.emaki/` resolution.
 - **Imports**: `crate::error::{EmakiError, Result}`, `serde::{Deserialize, Serialize}`, `std::path::{Path, PathBuf}`.
 - **Types & Enums**:
   ```rust
@@ -71,9 +71,18 @@
       pub max_file_size_mb: u64,
       pub caption_prefix: String,
   }
+  pub fn default_emaki_dir() -> PathBuf;
   impl Config {
       pub fn load_from_file(path: impl AsRef<Path>) -> Result<Self>;
       pub fn load_or_default(path: impl AsRef<Path>) -> Self;
+      pub fn find_config_path() -> Option<PathBuf>;
+      pub fn load_auto() -> Self;
+      pub fn active_config_path() -> PathBuf;
+      pub fn save_to_file(&self, path: impl AsRef<Path>) -> Result<()>;
+      pub fn set_value(&mut self, key: &str, value: &str) -> Result<()>;
+      pub fn add_whitelist_group(&mut self, jid: String) -> bool;
+      pub fn remove_whitelist_group(&mut self, jid: &str) -> bool;
+      pub fn ensure_directories(&self) -> Result<()>;
       pub fn is_group_allowed(&self, group_jid: &str) -> bool;
   }
   ```
@@ -146,7 +155,7 @@
   }
   ```
 
-### `src/infra/whatsapp.rs` (Role: infra, Lines: 245)
+### `src/infra/whatsapp.rs` (Role: infra, Lines: 259)
 - **Responsibility**: WhatsApp bot lifecycle, session verification, interactive login, mpsc queue worker with 3s cooldown gap, 5GB LRU cache integration, formatted caption composition, and encrypted media upload without burst reactions.
 - **Imports**: `whatsapp_rust::prelude::*`, `whatsapp_rust::download::MediaType`, `whatsapp_rust::media::{video_message, VideoOptions}`, `whatsapp_rust::upload::UploadOptions`, `tokio::sync::mpsc::{channel, Sender}`.
 - **Types & Enums**:
@@ -168,14 +177,16 @@
   }
   ```
 
-### `src/main.rs` (Role: entrypoint, Lines: 85)
-- **Responsibility**: Subcommand routing (`login`, `daemon`, `status`, `help`), session checks, logging subscriber configuration, and graceful exit orchestration.
+### `src/main.rs` (Role: entrypoint, Lines: 242)
+- **Responsibility**: Subcommand routing (`login`, `daemon`, `status`, `config`, `whitelist`, `help`), CLI configuration mutations, session checks, logging subscriber configuration, and graceful exit orchestration.
 - **Imports**: `tracing_subscriber::{fmt, EnvFilter}`, `infra::WhatsAppBot`, `config::Config`.
 - **Functions**:
   ```rust
   #[tokio::main]
   async fn main() -> Result<()>;
   async fn print_status(config: &Config) -> Result<()>;
+  async fn handle_config_command(args: &[String], config: &mut Config) -> Result<()>;
+  async fn handle_whitelist_command(args: &[String], config: &mut Config) -> Result<()>;
   fn print_help();
   fn print_banner();
   ```
