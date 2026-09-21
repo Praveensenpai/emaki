@@ -19,9 +19,19 @@
 
 ## 📖 Overview
 
-**絵巻 (Emaki)** is a standalone WhatsApp companion daemon written in pure **Rust**. When friends or group members share Instagram Reel URLs into your group chat, Emaki intercepts the link, fetches the video asynchronously via `yt-dlp`, and re-uploads the native `.mp4` video directly to the chat with end-to-end encryption.
+**絵巻 (Emaki)** is a standalone WhatsApp companion daemon written in pure **Rust**. When friends or group members share Instagram Reel URLs into your group chat, Emaki intercepts the link, fetches the video asynchronously via `yt-dlp` (with automatic retry resilience and a 5GB LRU local cache), and re-uploads the native `.mp4` video directly to the chat with end-to-end encryption.
 
 No Instagram account required. No browsers, Puppeteer, or heavy Node runtimes.
+
+---
+
+## 🪄 One-Liner Magic
+
+Install `emaki` directly to `~/.local/bin/emaki` with a single command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Praveensenpai/emaki/main/install.sh | bash
+```
 
 ---
 
@@ -50,15 +60,18 @@ No Instagram account required. No browsers, Puppeteer, or heavy Node runtimes.
 │                     Regex & Canonical ID                    │
 │                                │                            │
 │                                ▼                            │
-│                        ReelDownloader                       │
-│                     yt-dlp (async spawn)                    │
+│                     FIFO Queue (tokio::mpsc)                │
+│                     (3s anti-ban cooldown)                  │
+│                                │                            │
+│                                ▼                            │
+│                     5GB LRU Video Cache                     │
+│                  (Physical file validation)                 │
+│                  ├── Hit ──> Direct Upload                  │
+│                  └── Miss ─> yt-dlp (3x Retry)              │
 │                                │                            │
 │                                ▼                            │
 │                     WhatsApp E2EE Media Upload              │
-│                     Stream & Send to Group Chat             │
-│                                │                            │
-│                                ▼                            │
-│                     Instant Tempfile Cleanup                │
+│                     Rich Caption with Blockquotes           │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -67,8 +80,10 @@ No Instagram account required. No browsers, Puppeteer, or heavy Node runtimes.
 ## ✨ Features
 
 - 📱 **Personal Number Friendly**: Pairs seamlessly as a standard **Linked Device** via QR code rendered directly in your terminal.
-- ⚡ **Instant Processing**: Reacts with `⏳` when downloading starts, replaces with `✅` upon delivery, or `❌` if failed.
-- 🛡️ **Zero Disk Residue**: Temporary videos are deleted immediately after the encrypted upload completes.
+- 🚦 **Anti-Ban FIFO Queue**: Incoming reels are queued and processed sequentially with a mandatory **3-second cooldown gap** to prevent Meta spam detection. Zero burst reactions.
+- 🔁 **3-Attempt Resilient Download**: Automatically retries failed reel downloads up to 3 times with progressive backoff.
+- 🗄️ **5GB Smart LRU Cache**: Stores downloaded videos and metadata locally. If a reel is re-shared, it uploads instantly without hitting Instagram. Automatically prunes the oldest files when exceeding 5GB.
+- 🎨 **Rich Formatting**: Formats captions with WhatsApp blockquotes (`> ...`), author attribution (`@creator`), and clean links.
 - 🎯 **Group Whitelist**: Restrict the bot to only listen to specific group chats to prevent unwanted triggers.
 - 🔒 **End-to-End Encrypted**: Built on `whatsapp-rust`, implementing WhatsApp Web's Signal Protocol and Noise handshake.
 
@@ -86,7 +101,11 @@ sudo pacman -S yt-dlp ffmpeg
 sudo apt update && sudo apt install yt-dlp ffmpeg
 ```
 
-### 2. Build & Run
+### 2. Run
+```bash
+emaki
+```
+Or from source:
 ```bash
 git clone https://github.com/Praveensenpai/emaki.git
 cd emaki
@@ -110,6 +129,12 @@ Create an optional `emaki.toml` file in the working directory:
 # Path to the SQLite session database
 session_db = "emaki.db"
 
+# Local cache directory for instant re-sharing of viral reels
+cache_dir = "cache"
+
+# Maximum cache size in gigabytes before auto-pruning oldest files (LRU)
+max_cache_size_gb = 5
+
 # WhatsApp Group Whitelist
 # Leave empty ([]) to respond in any group where the bot is present.
 # To restrict to specific groups, specify their JIDs:
@@ -132,7 +157,7 @@ caption_prefix = "🎬 Reel via 絵巻"
 ## 🛡️ Best Practices & Anti-Ban Tips
 
 - **Whitelist Only**: Keep `whitelist_groups` configured to only your private friends' group.
-- **Never Spam**: Do not use the bot for broadcast lists or unsolicited personal chats.
+- **Pacing is Built-in**: The bot enforces a 3-second delay between video deliveries and suppresses burst emoji reactions.
 - **Natural Usage**: Emaki responds only when a group member shares a link—it sends zero unsolicited messages.
 
 ---

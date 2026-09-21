@@ -10,20 +10,26 @@ WhatsApp Group Message
 [WhatsAppBot (whatsapp-rust Tokio)] ──(Extract Message Text)──> [ReelExtractor (domain/reel)]
        │                                                                  │
        │                                                                  ▼
-       ├─── (Reaction "⏳")                                       ExtractedReel { id, canonical_url }
-       │                                                                  │
-       ▼                                                                  ▼
-[ctx.client.upload] <─── DownloadedVideo { bytes } <─── [ReelDownloader (yt-dlp subprocess)]
+       ▼                                                       ExtractedReel { id, canonical_url }
+[tokio::sync::mpsc::channel (FIFO Queue)] <───────────────────────────────┘
+       │
+       ▼ (Sequential Worker with 3s anti-ban cooldown)
+[ReelCache (5GB Bounded LRU)] ──(Hit: physical .mp4 check)──> DownloadedVideo { bytes, uploader, desc }
+       │ (Miss or missing physical file)
+       ▼
+[ReelDownloader (yt-dlp with 3x retry & backoff)] ──> Put into [ReelCache]
        │
        ▼
-[whatsapp_rust::media::video_message] ──> [ctx.send_message] ──> Group Chat (Reaction "✅")
+[format_caption (domain/reel)] ──> [whatsapp_rust::media::video_message] ──> [ctx.send_message]
 ```
 
 ## 2. Global Constraints & Architecture Patterns
 - **Primary Language & Edition**: Rust 2021 edition (stable toolchain >= 1.94).
 - **Architectural Paradigm**: Role-based clean architecture (`domain/`, `infra/`, `config.rs`, `error.rs`).
 - **Hard Constraints**: <400 lines/file, <60 lines/fn, max 4 parameters, zero production `unwrap()`/`expect()`, zero dead code, 0 compiler/clippy warnings.
-- **Resource Footprint**: ~10–20MB idle RAM, sub-second execution, zero persistent disk overhead (temp videos dropped immediately).
+- **Resilience & Safety**: Asynchronous FIFO mpsc queue, mandatory 3-second pacing between uploads, 3 download attempts with backoff, zero burst reactions.
+- **Cache Policy**: 5GB bounded local storage with physical file existence validation and automatic LRU pruning (oldest modified time first).
+- **Resource Footprint**: ~10–20MB idle RAM, sub-second execution, zero persistent memory overhead.
 
 ## 3. Module & Interface Skeleton
 
@@ -41,7 +47,7 @@ WhatsApp Group Message
   pub type Result<T> = std::result::Result<T, EmakiError>;
   ```
 
-### `src/config.rs` (Role: infra, Lines: 100)
+### `src/config.rs` (Role: infra, Lines: 118)
 - **Responsibility**: TOML configuration deserialization and group whitelist verification.
 - **Imports**: `crate::error::{EmakiError, Result}`, `serde::{Deserialize, Serialize}`, `std::path::{Path, PathBuf}`.
 - **Types & Enums**:
@@ -51,6 +57,8 @@ WhatsApp Group Message
       pub phone_number: Option<String>,
       pub whitelist_groups: Vec<String>,
       pub temp_dir: PathBuf,
+      pub cache_dir: PathBuf,
+      pub max_cache_size_gb: u64,
       pub max_file_size_mb: u64,
       pub caption_prefix: String,
   }
@@ -62,11 +70,11 @@ WhatsApp Group Message
   ```
 
 ### `src/domain.rs` (Role: domain, Lines: 3)
-- **Responsibility**: Re-exports pure domain models and extractors.
-- **Exports**: `ExtractedReel`, `ReelExtractor`.
+- **Responsibility**: Re-exports pure domain models, extractors, and formatting utilities.
+- **Exports**: `ExtractedReel`, `ReelExtractor`, `format_caption`.
 
-### `src/domain/reel.rs` (Role: domain, Lines: 67)
-- **Responsibility**: Regular expression parsing and canonicalization of Instagram reel URLs.
+### `src/domain/reel.rs` (Role: domain, Lines: 148)
+- **Responsibility**: Regex parsing of Instagram reel URLs and rich WhatsApp blockquote caption formatting with hashtag stripping.
 - **Imports**: `regex::Regex`, `std::sync::LazyLock`, `std::collections::HashSet`.
 - **Types & Enums**:
   ```rust
@@ -78,11 +86,28 @@ WhatsApp Group Message
   impl ReelExtractor {
       pub fn extract_all(text: &str) -> Vec<ExtractedReel>;
   }
+  pub fn format_caption(uploader: Option<&str>, description: Option<&str>, canonical_url: &str) -> String;
   ```
 
-### `src/infra.rs` (Role: infra, Lines: 5)
+### `src/infra.rs` (Role: infra, Lines: 6)
 - **Responsibility**: Declares and re-exports infrastructure drivers.
 - **Exports**: `WhatsAppBot`.
+
+### `src/infra/cache.rs` (Role: infra, Lines: 174)
+- **Responsibility**: 5GB LRU local caching for video files and JSON metadata with physical file existence validation.
+- **Imports**: `crate::error::Result`, `crate::infra::downloader::DownloadedVideo`, `serde::{Deserialize, Serialize}`, `std::path::{Path, PathBuf}`.
+- **Types & Enums**:
+  ```rust
+  pub struct ReelCache {
+      cache_dir: PathBuf,
+      max_bytes: u64,
+  }
+  impl ReelCache {
+      pub fn new(cache_dir: impl AsRef<Path>, max_size_gb: u64) -> Self;
+      pub async fn get(&self, reel_id: &str) -> Option<DownloadedVideo>;
+      pub async fn put(&self, reel_id: &str, video: &DownloadedVideo) -> Result<()>;
+  }
+  ```
 
 ### `src/infra/qr.rs` (Role: infra, Lines: 20)
 - **Responsibility**: Terminal QR code generation using `fast_qr` for WhatsApp Web linking.
@@ -92,13 +117,15 @@ WhatsApp Group Message
   pub fn render_terminal_qr(code: &str, timeout_secs: u64) -> Result<()>;
   ```
 
-### `src/infra/downloader.rs` (Role: infra, Lines: 73)
-- **Responsibility**: Asynchronous invocation of `yt-dlp` CLI, size boundary validation, and disk cleanup.
-- **Imports**: `crate::error::{EmakiError, Result}`, `tokio::process::Command`, `std::path::{Path, PathBuf}`.
+### `src/infra/downloader.rs` (Role: infra, Lines: 123)
+- **Responsibility**: Asynchronous invocation of `yt-dlp` CLI with 3 retries, backoff, metadata extraction (`.info.json`), size boundary validation, and disk cleanup.
+- **Imports**: `crate::error::{EmakiError, Result}`, `tokio::process::Command`, `std::path::{Path, PathBuf}`, `std::time::{Duration, SystemTime, UNIX_EPOCH}`.
 - **Types & Enums**:
   ```rust
   pub struct DownloadedVideo {
       pub bytes: Vec<u8>,
+      pub uploader: Option<String>,
+      pub description: Option<String>,
   }
   pub struct ReelDownloader {
       temp_dir: PathBuf,
@@ -110,14 +137,19 @@ WhatsApp Group Message
   }
   ```
 
-### `src/infra/whatsapp.rs` (Role: infra, Lines: 168)
-- **Responsibility**: WhatsApp bot lifecycle, event binding, reaction dispatch, and encrypted media upload.
-- **Imports**: `whatsapp_rust::prelude::*`, `whatsapp_rust::download::MediaType`, `whatsapp_rust::media::{video_message, VideoOptions}`, `whatsapp_rust::upload::UploadOptions`.
+### `src/infra/whatsapp.rs` (Role: infra, Lines: 206)
+- **Responsibility**: WhatsApp bot lifecycle, mpsc queue worker with 3s cooldown gap, 5GB LRU cache integration, formatted caption composition, and encrypted media upload without burst reactions.
+- **Imports**: `whatsapp_rust::prelude::*`, `whatsapp_rust::download::MediaType`, `whatsapp_rust::media::{video_message, VideoOptions}`, `whatsapp_rust::upload::UploadOptions`, `tokio::sync::mpsc::{channel, Sender}`.
 - **Types & Enums**:
   ```rust
+  struct ReelJob {
+      ctx: MessageContext,
+      reel: ExtractedReel,
+  }
   pub struct WhatsAppBot {
       config: Config,
       downloader: Arc<ReelDownloader>,
+      cache: Arc<ReelCache>,
   }
   impl WhatsAppBot {
       pub fn new(config: Config) -> Self;

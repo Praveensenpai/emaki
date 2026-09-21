@@ -1,3 +1,3 @@
 pub mod reel;
 
-pub use reel::{ExtractedReel, ReelExtractor};
+pub use reel::{format_caption, ExtractedReel, ReelExtractor};

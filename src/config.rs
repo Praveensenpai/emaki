@@ -16,6 +16,12 @@ pub struct Config {
     #[serde(default = "default_temp_dir")]
     pub temp_dir: PathBuf,
 
+    #[serde(default = "default_cache_dir")]
+    pub cache_dir: PathBuf,
+
+    #[serde(default = "default_max_cache_gb")]
+    pub max_cache_size_gb: u64,
+
     #[serde(default = "default_max_size_mb")]
     pub max_file_size_mb: u64,
 
@@ -29,6 +35,14 @@ fn default_session_db() -> PathBuf {
 
 fn default_temp_dir() -> PathBuf {
     std::env::temp_dir()
+}
+
+fn default_cache_dir() -> PathBuf {
+    PathBuf::from("cache")
+}
+
+fn default_max_cache_gb() -> u64 {
+    5
 }
 
 fn default_max_size_mb() -> u64 {
@@ -46,6 +60,8 @@ impl Default for Config {
             phone_number: None,
             whitelist_groups: Vec::new(),
             temp_dir: default_temp_dir(),
+            cache_dir: default_cache_dir(),
+            max_cache_size_gb: default_max_cache_gb(),
             max_file_size_mb: default_max_size_mb(),
             caption_prefix: default_caption_prefix(),
         }
@@ -80,6 +96,8 @@ mod tests {
     fn test_default_config() {
         let cfg = Config::default();
         assert_eq!(cfg.session_db, PathBuf::from("emaki.db"));
+        assert_eq!(cfg.cache_dir, PathBuf::from("cache"));
+        assert_eq!(cfg.max_cache_size_gb, 5);
         assert!(cfg.whitelist_groups.is_empty());
         assert!(cfg.is_group_allowed("any_group@g.us"));
     }

@@ -6,3 +6,5 @@
 emaki.db*
 *.mp4
 /tmp/
+cache/
+*.info.json

@@ -1,18 +1,27 @@
 use crate::config::Config;
-use crate::domain::{ExtractedReel, ReelExtractor};
+use crate::domain::{format_caption, ExtractedReel, ReelExtractor};
 use crate::error::{EmakiError, Result};
+use crate::infra::cache::ReelCache;
 use crate::infra::downloader::ReelDownloader;
 use crate::infra::qr::render_terminal_qr;
 use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::mpsc::{channel, Sender};
 use tracing::{error, info, warn};
 use whatsapp_rust::download::MediaType;
 use whatsapp_rust::media::{video_message, VideoOptions};
 use whatsapp_rust::prelude::*;
 use whatsapp_rust::upload::UploadOptions;
 
+struct ReelJob {
+    ctx: MessageContext,
+    reel: ExtractedReel,
+}
+
 pub struct WhatsAppBot {
     config: Config,
     downloader: Arc<ReelDownloader>,
+    cache: Arc<ReelCache>,
 }
 
 impl WhatsAppBot {
@@ -21,7 +30,12 @@ impl WhatsAppBot {
             &config.temp_dir,
             config.max_file_size_mb,
         ));
-        Self { config, downloader }
+        let cache = Arc::new(ReelCache::new(&config.cache_dir, config.max_cache_size_gb));
+        Self {
+            config,
+            downloader,
+            cache,
+        }
     }
 
     pub async fn start(&self) -> Result<()> {
@@ -33,7 +47,19 @@ impl WhatsAppBot {
 
         info!("SQLite session store initialized at: {db_path}");
 
-        let downloader = Arc::clone(&self.downloader);
+        let (job_tx, mut job_rx) = channel::<ReelJob>(100);
+        let worker_downloader = Arc::clone(&self.downloader);
+        let worker_cache = Arc::clone(&self.cache);
+
+        tokio::spawn(async move {
+            info!("Reel processing queue worker started (3s cooldown gap enabled, 5GB LRU cache active)");
+            while let Some(job) = job_rx.recv().await {
+                Self::download_and_send(&job.ctx, &job.reel, &worker_downloader, &worker_cache)
+                    .await;
+                tokio::time::sleep(Duration::from_secs(3)).await;
+            }
+        });
+
         let config = self.config.clone();
 
         let bot = Bot::builder()
@@ -50,10 +76,10 @@ impl WhatsAppBot {
                 warn!("⚠️ Session logged out. Please restart and re-scan QR code.");
             })
             .on_message(move |ctx| {
-                let downloader = Arc::clone(&downloader);
+                let job_tx = job_tx.clone();
                 let config = config.clone();
                 async move {
-                    Self::process_message(ctx, downloader, config).await;
+                    Self::process_message(ctx, &job_tx, &config).await;
                 }
             })
             .build()
@@ -66,7 +92,7 @@ impl WhatsAppBot {
         Ok(())
     }
 
-    async fn process_message(ctx: MessageContext, downloader: Arc<ReelDownloader>, config: Config) {
+    async fn process_message(ctx: MessageContext, job_tx: &Sender<ReelJob>, config: &Config) {
         if ctx.info.source.is_from_me {
             return;
         }
@@ -86,13 +112,19 @@ impl WhatsAppBot {
         }
 
         info!(
-            "Found {} Instagram Reel(s) from chat {}",
+            "Found {} Instagram Reel(s) in chat {}. Enqueueing...",
             reels.len(),
             chat_str
         );
 
         for reel in reels {
-            Self::download_and_send(&ctx, &reel, &downloader, &config.caption_prefix).await;
+            let job = ReelJob {
+                ctx: ctx.clone(),
+                reel,
+            };
+            if let Err(e) = job_tx.send(job).await {
+                error!("Failed to enqueue reel job: {e}");
+            }
         }
     }
 
@@ -100,16 +132,21 @@ impl WhatsAppBot {
         ctx: &MessageContext,
         reel: &ExtractedReel,
         downloader: &ReelDownloader,
-        caption_prefix: &str,
+        cache: &ReelCache,
     ) {
-        let _ = ctx.react("⏳").await;
-
-        let video = match downloader.download(&reel.id, &reel.canonical_url).await {
-            Ok(v) => v,
-            Err(e) => {
-                error!("Download failed for reel {}: {e}", reel.id);
-                let _ = ctx.react("❌").await;
-                return;
+        let video = if let Some(cached) = cache.get(&reel.id).await {
+            info!("Serving reel {} directly from 5GB cache", reel.id);
+            cached
+        } else {
+            match downloader.download(&reel.id, &reel.canonical_url).await {
+                Ok(v) => {
+                    let _ = cache.put(&reel.id, &v).await;
+                    v
+                }
+                Err(e) => {
+                    error!("Download failed for reel after retries {}: {e}", reel.id);
+                    return;
+                }
             }
         };
 
@@ -122,12 +159,15 @@ impl WhatsAppBot {
             Ok(u) => u,
             Err(e) => {
                 error!("Upload failed for reel {}: {e}", reel.id);
-                let _ = ctx.react("❌").await;
                 return;
             }
         };
 
-        let caption = format!("{caption_prefix} {}", reel.canonical_url);
+        let caption = format_caption(
+            video.uploader.as_deref(),
+            video.description.as_deref(),
+            &reel.canonical_url,
+        );
         let opts = VideoOptions {
             caption: Some(caption),
             ..Default::default()
@@ -137,10 +177,8 @@ impl WhatsAppBot {
 
         if let Err(e) = ctx.send_message(msg).await {
             error!("Failed to send video message: {e}");
-            let _ = ctx.react("❌").await;
         } else {
-            let _ = ctx.react("✅").await;
-            info!("Successfully delivered reel {} to group", reel.id);
+            info!("Successfully delivered reel {} to chat", reel.id);
         }
     }
 }

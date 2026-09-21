@@ -3,13 +3,19 @@
 # Path to the SQLite session database (stores WhatsApp Web credentials & keys)
 session_db = "emaki.db"
 
+# Local cache directory for instant re-sharing of viral reels
+cache_dir = "cache"
+
+# Maximum cache size in gigabytes before auto-pruning oldest files (LRU)
+max_cache_size_gb = 5
+
 # WhatsApp Group Whitelist
 # Leave empty ([]) to allow any group where the bot is added.
 # To restrict to specific groups, add their JIDs:
 # whitelist_groups = ["120363024819283746@g.us"]
 whitelist_groups = []
 
-# Directory for temporary video buffering (cleaned up immediately after upload)
+# Directory for temporary video buffering
 temp_dir = "/tmp"
 
 # Maximum download file size in MB (WhatsApp supports up to 64-100MB)

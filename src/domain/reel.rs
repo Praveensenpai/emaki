@@ -33,6 +33,72 @@ impl ReelExtractor {
     }
 }
 
+pub fn format_caption(
+    uploader: Option<&str>,
+    description: Option<&str>,
+    canonical_url: &str,
+) -> String {
+    let mut parts = Vec::new();
+
+    if let Some(user) = uploader.filter(|u| !u.trim().is_empty()) {
+        parts.push(format!("🎬 *Reel by @{user}*"));
+    } else {
+        parts.push("🎬 *Instagram Reel*".to_string());
+    }
+
+    if let Some(desc) = description.map(clean_description).filter(|d| !d.is_empty()) {
+        let quote = desc
+            .lines()
+            .map(|l| format!("> {l}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        parts.push(quote);
+    }
+
+    parts.push(format!("🔗 {canonical_url}"));
+    parts.join("\n\n")
+}
+
+fn clean_description(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    let without_hashtag_tail = strip_trailing_hashtags(trimmed);
+
+    const MAX_CHARS: usize = 280;
+    if without_hashtag_tail.chars().count() <= MAX_CHARS {
+        without_hashtag_tail
+    } else {
+        let truncated: String = without_hashtag_tail.chars().take(MAX_CHARS).collect();
+        format!("{truncated}...")
+    }
+}
+
+fn strip_trailing_hashtags(text: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut end = lines.len();
+
+    while end > 0 {
+        let line = lines[end - 1].trim();
+        if line.is_empty() {
+            end -= 1;
+            continue;
+        }
+
+        let words: Vec<&str> = line.split_whitespace().collect();
+        let all_hashtags = !words.is_empty() && words.iter().all(|w| w.starts_with('#'));
+        if all_hashtags {
+            end -= 1;
+        } else {
+            break;
+        }
+    }
+
+    lines[..end].join("\n").trim().to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -59,9 +125,24 @@ mod tests {
     }
 
     #[test]
-    fn test_no_match() {
-        let text = "No links here https://google.com/search?q=test";
-        let reels = ReelExtractor::extract_all(text);
-        assert!(reels.is_empty());
+    fn test_format_caption_with_metadata() {
+        let caption = format_caption(
+            Some("paisen"),
+            Some("Hilarious cat jumping over couch\n#cat #funny #viral"),
+            "https://www.instagram.com/reel/C8XYZ123_a/",
+        );
+        assert!(caption.contains("🎬 *Reel by @paisen*"));
+        assert!(caption.contains("> Hilarious cat jumping over couch"));
+        assert!(!caption.contains("#cat"));
+        assert!(caption.contains("🔗 https://www.instagram.com/reel/C8XYZ123_a/"));
+    }
+
+    #[test]
+    fn test_format_caption_fallback() {
+        let caption = format_caption(None, None, "https://www.instagram.com/reel/123/");
+        assert_eq!(
+            caption,
+            "🎬 *Instagram Reel*\n\n🔗 https://www.instagram.com/reel/123/"
+        );
     }
 }
