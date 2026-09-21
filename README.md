@@ -19,7 +19,7 @@
 
 ## 📖 Overview
 
-**絵巻 (Emaki)** is a standalone WhatsApp companion daemon written in pure **Rust**. When friends or group members share Instagram Reel URLs into your group chat, Emaki intercepts the link, fetches the video asynchronously via `yt-dlp` (with automatic retry resilience and a 5GB LRU local cache), and re-uploads the native `.mp4` video directly to the chat with end-to-end encryption.
+**絵巻 (Emaki)** is a standalone WhatsApp companion daemon written in pure **Rust**. When friends or group members share Instagram Reel URLs into your group chat, Emaki intercepts the link, fetches the video asynchronously via `yt-dlp` (with 3-attempt retry resilience and a 5GB LRU local cache), and re-uploads the native `.mp4` video directly to the chat with end-to-end encryption.
 
 No Instagram account required. No browsers, Puppeteer, or heavy Node runtimes.
 
@@ -27,7 +27,7 @@ No Instagram account required. No browsers, Puppeteer, or heavy Node runtimes.
 
 ## 🪄 One-Liner Magic
 
-Install `emaki` directly to `~/.local/bin/emaki` with a single command:
+Install the pre-compiled `emaki` binary directly to `~/.local/bin/emaki` with a single command:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Praveensenpai/emaki/main/install.sh | bash
@@ -80,6 +80,7 @@ curl -fsSL https://raw.githubusercontent.com/Praveensenpai/emaki/main/install.sh
 ## ✨ Features
 
 - 📱 **Personal Number Friendly**: Pairs seamlessly as a standard **Linked Device** via QR code rendered directly in your terminal.
+- 🛡️ **Daemon Session Guard**: Separates interactive pairing (`emaki login`) from headless execution (`emaki daemon`), ensuring background daemons never hang without credentials.
 - 🚦 **Anti-Ban FIFO Queue**: Incoming reels are queued and processed sequentially with a mandatory **3-second cooldown gap** to prevent Meta spam detection. Zero burst reactions.
 - 🔁 **3-Attempt Resilient Download**: Automatically retries failed reel downloads up to 3 times with progressive backoff.
 - 🗄️ **5GB Smart LRU Cache**: Stores downloaded videos and metadata locally. If a reel is re-shared, it uploads instantly without hitting Instagram. Automatically prunes the oldest files when exceeding 5GB.
@@ -101,23 +102,67 @@ sudo pacman -S yt-dlp ffmpeg
 sudo apt update && sudo apt install yt-dlp ffmpeg
 ```
 
-### 2. Run
+### 2. Install Emaki
 ```bash
-emaki
-```
-Or from source:
-```bash
-git clone https://github.com/Praveensenpai/emaki.git
-cd emaki
-cargo run --release
+curl -fsSL https://raw.githubusercontent.com/Praveensenpai/emaki/main/install.sh | bash
 ```
 
 ### 3. Pair With WhatsApp
-1. On startup, Emaki will display a high-resolution QR code directly in your terminal.
+Run the interactive login command in your terminal:
+```bash
+emaki login
+```
+1. A high-resolution QR code will render directly in your terminal.
 2. Open WhatsApp on your phone:
    - **Settings** (or three dots) > **Linked Devices** > **Link a Device**.
 3. Scan the terminal QR code.
-4. Your session is saved locally in `emaki.db` (SQLite). Future runs will auto-connect without re-scanning.
+4. Your cryptographic session keys are saved locally in `emaki.db` (SQLite).
+
+### 4. Verify & Start Daemon
+Check your session and cache status:
+```bash
+emaki status
+```
+
+Start the background daemon:
+```bash
+emaki daemon
+```
+
+---
+
+## 🐧 Run as a 24/7 Linux Service (Systemd)
+
+Create a systemd service file at `/etc/systemd/system/emaki.service`:
+
+```ini
+[Unit]
+Description=絵巻 (Emaki) WhatsApp Reel Daemon
+After=network.target
+
+[Service]
+Type=simple
+User=paisen
+WorkingDirectory=/home/paisen/Projects/emaki
+ExecStart=/home/paisen/.local/bin/emaki daemon
+Restart=always
+RestartSec=5
+Environment=RUST_LOG=info
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now emaki
+```
+
+View live logs:
+```bash
+journalctl -u emaki -f
+```
 
 ---
 
@@ -158,7 +203,7 @@ caption_prefix = "🎬 Reel via 絵巻"
 
 - **Whitelist Only**: Keep `whitelist_groups` configured to only your private friends' group.
 - **Pacing is Built-in**: The bot enforces a 3-second delay between video deliveries and suppresses burst emoji reactions.
-- **Natural Usage**: Emaki responds only when a group member shares a link—it sends zero unsolicited messages.
+- **Transferring to VPS**: Pair locally using `emaki login`, then copy `emaki.db` to your remote server (`scp emaki.db user@remote:/path/to/`). The remote daemon will boot immediately without needing a QR scan!
 
 ---
 
