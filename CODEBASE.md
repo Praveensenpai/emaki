@@ -4,23 +4,31 @@
 
 ## 1. System Topology & Data Flow
 ```text
-WhatsApp Group Message 
+[CLI: login | daemon | status]
        │
-       ▼
-[WhatsAppBot (whatsapp-rust Tokio)] ──(Extract Message Text)──> [ReelExtractor (domain/reel)]
-       │                                                                  │
-       │                                                                  ▼
-       ▼                                                       ExtractedReel { id, canonical_url }
-[tokio::sync::mpsc::channel (FIFO Queue)] <───────────────────────────────┘
+       ├── login  ──> [WhatsAppBot::start_login] (Interactive QR pairing -> exits on auth)
+       ├── status ──> [WhatsAppBot::check_login_status] + Cache size computation
        │
-       ▼ (Sequential Worker with 3s anti-ban cooldown)
-[ReelCache (5GB Bounded LRU)] ──(Hit: physical .mp4 check)──> DownloadedVideo { bytes, uploader, desc }
-       │ (Miss or missing physical file)
-       ▼
-[ReelDownloader (yt-dlp with 3x retry & backoff)] ──> Put into [ReelCache]
-       │
-       ▼
-[format_caption (domain/reel)] ──> [whatsapp_rust::media::video_message] ──> [ctx.send_message]
+       └── daemon ──> [WhatsAppBot::check_login_status] (Guards: errors if not paired)
+                            │ (Verified Active Session)
+                            ▼
+              WhatsApp Group Message 
+                     │
+                     ▼
+              [WhatsAppBot (whatsapp-rust Tokio)] ──(Extract Message Text)──> [ReelExtractor (domain/reel)]
+                     │                                                                  │
+                     │                                                                  ▼
+                     ▼                                                       ExtractedReel { id, canonical_url }
+              [tokio::sync::mpsc::channel (FIFO Queue)] <───────────────────────────────┘
+                     │
+                     ▼ (Sequential Worker with 3s anti-ban cooldown)
+              [ReelCache (5GB Bounded LRU)] ──(Hit: physical .mp4 check)──> DownloadedVideo { bytes, uploader, desc }
+                     │ (Miss or missing physical file)
+                     ▼
+              [ReelDownloader (yt-dlp with 3x retry & backoff)] ──> Put into [ReelCache]
+                     │
+                     ▼
+              [format_caption (domain/reel)] ──> [whatsapp_rust::media::video_message] ──> [ctx.send_message]
 ```
 
 ## 2. Global Constraints & Architecture Patterns
@@ -28,6 +36,7 @@ WhatsApp Group Message
 - **Architectural Paradigm**: Role-based clean architecture (`domain/`, `infra/`, `config.rs`, `error.rs`).
 - **Hard Constraints**: <400 lines/file, <60 lines/fn, max 4 parameters, zero production `unwrap()`/`expect()`, zero dead code, 0 compiler/clippy warnings.
 - **Resilience & Safety**: Asynchronous FIFO mpsc queue, mandatory 3-second pacing between uploads, 3 download attempts with backoff, zero burst reactions.
+- **Session Guard**: Explicit separation between `emaki login` (interactive pairing) and `emaki daemon` (refuses to start without pre-existing verified credentials in `emaki.db`).
 - **Cache Policy**: 5GB bounded local storage with physical file existence validation and automatic LRU pruning (oldest modified time first).
 - **Resource Footprint**: ~10–20MB idle RAM, sub-second execution, zero persistent memory overhead.
 
@@ -137,8 +146,8 @@ WhatsApp Group Message
   }
   ```
 
-### `src/infra/whatsapp.rs` (Role: infra, Lines: 206)
-- **Responsibility**: WhatsApp bot lifecycle, mpsc queue worker with 3s cooldown gap, 5GB LRU cache integration, formatted caption composition, and encrypted media upload without burst reactions.
+### `src/infra/whatsapp.rs` (Role: infra, Lines: 245)
+- **Responsibility**: WhatsApp bot lifecycle, session verification, interactive login, mpsc queue worker with 3s cooldown gap, 5GB LRU cache integration, formatted caption composition, and encrypted media upload without burst reactions.
 - **Imports**: `whatsapp_rust::prelude::*`, `whatsapp_rust::download::MediaType`, `whatsapp_rust::media::{video_message, VideoOptions}`, `whatsapp_rust::upload::UploadOptions`, `tokio::sync::mpsc::{channel, Sender}`.
 - **Types & Enums**:
   ```rust
@@ -153,16 +162,20 @@ WhatsApp Group Message
   }
   impl WhatsAppBot {
       pub fn new(config: Config) -> Self;
-      pub async fn start(&self) -> Result<()>;
+      pub async fn check_login_status(session_db: &Path) -> Result<Option<String>>;
+      pub async fn start_login(&self) -> Result<()>;
+      pub async fn start_daemon(&self) -> Result<()>;
   }
   ```
 
-### `src/main.rs` (Role: entrypoint, Lines: 43)
-- **Responsibility**: Binary bootstrap, logging subscriber configuration, and graceful exit orchestration.
+### `src/main.rs` (Role: entrypoint, Lines: 85)
+- **Responsibility**: Subcommand routing (`login`, `daemon`, `status`, `help`), session checks, logging subscriber configuration, and graceful exit orchestration.
 - **Imports**: `tracing_subscriber::{fmt, EnvFilter}`, `infra::WhatsAppBot`, `config::Config`.
 - **Functions**:
   ```rust
   #[tokio::main]
   async fn main() -> Result<()>;
+  async fn print_status(config: &Config) -> Result<()>;
+  fn print_help();
   fn print_banner();
   ```

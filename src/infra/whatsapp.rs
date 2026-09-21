@@ -4,6 +4,7 @@ use crate::error::{EmakiError, Result};
 use crate::infra::cache::ReelCache;
 use crate::infra::downloader::ReelDownloader;
 use crate::infra::qr::render_terminal_qr;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::{channel, Sender};
@@ -38,21 +39,79 @@ impl WhatsAppBot {
         }
     }
 
-    pub async fn start(&self) -> Result<()> {
+    pub async fn check_login_status(session_db: &Path) -> Result<Option<String>> {
+        if !session_db.exists() {
+            return Ok(None);
+        }
+        let db_str = session_db.to_str().unwrap_or("emaki.db");
+        let store = SqliteStore::new(db_str)
+            .await
+            .map_err(|e| EmakiError::WhatsApp(format!("Database error: {e}")))?;
+
+        if let Ok(Some(dev)) = store.load_device_data_for_device(1).await {
+            if let Some(pn) = dev.pn {
+                return Ok(Some(pn.to_string()));
+            }
+            if let Some(lid) = dev.lid {
+                return Ok(Some(lid.to_string()));
+            }
+        }
+        Ok(None)
+    }
+
+    pub async fn start_login(&self) -> Result<()> {
         let db_path = self.config.session_db.to_str().unwrap_or("emaki.db");
+        let store = SqliteStore::new(db_path)
+            .await
+            .map_err(|e| EmakiError::WhatsApp(format!("Database init failed: {e}")))?;
+
+        info!("Starting interactive WhatsApp pairing...");
+
+        let bot = Bot::builder()
+            .with_backend(store)
+            .on_qr_code(|code, timeout| async move {
+                if let Err(e) = render_terminal_qr(&code, timeout.as_secs()) {
+                    error!("Failed to render QR code: {e}");
+                }
+            })
+            .on_connected(|client| async move {
+                info!("══════════════════════════════════════════════════════════");
+                info!("🎉 WhatsApp linked successfully!");
+                info!("📁 Session credentials saved to emaki.db");
+                info!("🚀 You can now start the daemon: emaki daemon");
+                info!("══════════════════════════════════════════════════════════");
+                client.disconnect().await;
+            })
+            .build()
+            .await
+            .map_err(|e| EmakiError::WhatsApp(format!("Failed to build bot: {e}")))?;
+
+        bot.run().await;
+        Ok(())
+    }
+
+    pub async fn start_daemon(&self) -> Result<()> {
+        let db_path = self.config.session_db.to_str().unwrap_or("emaki.db");
+
+        match Self::check_login_status(&self.config.session_db).await? {
+            Some(jid) => info!("Verified authenticated session for device: {jid}"),
+            None => {
+                return Err(EmakiError::WhatsApp(
+                    "No authenticated session found in emaki.db. Please run 'emaki login' first to pair your WhatsApp account!".to_string(),
+                ));
+            }
+        }
 
         let store = SqliteStore::new(db_path)
             .await
-            .map_err(|e| EmakiError::WhatsApp(format!("Database initialization failed: {e}")))?;
-
-        info!("SQLite session store initialized at: {db_path}");
+            .map_err(|e| EmakiError::WhatsApp(format!("Database error: {e}")))?;
 
         let (job_tx, mut job_rx) = channel::<ReelJob>(100);
         let worker_downloader = Arc::clone(&self.downloader);
         let worker_cache = Arc::clone(&self.cache);
 
         tokio::spawn(async move {
-            info!("Reel processing queue worker started (3s cooldown gap enabled, 5GB LRU cache active)");
+            info!("Reel queue worker active (3s pacing, 5GB LRU cache)");
             while let Some(job) = job_rx.recv().await {
                 Self::download_and_send(&job.ctx, &job.reel, &worker_downloader, &worker_cache)
                     .await;
@@ -64,16 +123,11 @@ impl WhatsAppBot {
 
         let bot = Bot::builder()
             .with_backend(store)
-            .on_qr_code(|code, timeout| async move {
-                if let Err(e) = render_terminal_qr(&code, timeout.as_secs()) {
-                    error!("Failed to render QR code: {e}");
-                }
-            })
             .on_connected(|_client| async {
-                info!("✨ 絵巻 (Emaki) daemon connected and active!");
+                info!("✨ 絵巻 (Emaki) daemon connected and relaying reels!");
             })
             .on_logged_out(|_info| async {
-                warn!("⚠️ Session logged out. Please restart and re-scan QR code.");
+                warn!("⚠️ Session logged out. Run 'emaki login' to re-authenticate.");
             })
             .on_message(move |ctx| {
                 let job_tx = job_tx.clone();
@@ -84,11 +138,9 @@ impl WhatsAppBot {
             })
             .build()
             .await
-            .map_err(|e| EmakiError::WhatsApp(format!("Failed to build WhatsApp bot: {e}")))?;
+            .map_err(|e| EmakiError::WhatsApp(format!("Failed to build bot: {e}")))?;
 
-        info!("Starting bot event loop...");
         bot.run().await;
-
         Ok(())
     }
 
