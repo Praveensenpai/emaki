@@ -5,7 +5,7 @@ mod infra;
 
 use config::Config;
 use error::Result;
-use infra::WhatsAppBot;
+use infra::{DaemonManager, ServiceManager, WhatsAppBot};
 use tracing::info;
 use tracing_subscriber::{fmt, EnvFilter};
 
@@ -40,9 +40,67 @@ async fn main() -> Result<()> {
         "whitelist" => {
             handle_whitelist_command(&args, &mut config).await?;
         }
-        "daemon" | "run" => {
-            info!("Running in background daemon mode...");
+        "service" => {
+            let action = args.get(2).map(|s| s.as_str());
+            if action == Some("install") {
+                match WhatsAppBot::check_login_status(&config.session_db).await? {
+                    Some(jid) => info!("Verified active session: {jid}"),
+                    None => {
+                        eprintln!("❌ Cannot install service: WhatsApp session is not paired!");
+                        eprintln!("👉 Run 'emaki login' first to authenticate.");
+                        std::process::exit(1);
+                    }
+                }
+            }
+            ServiceManager::handle_command(action)?;
+        }
+        "daemon" | "start" => {
+            let is_foreground = args.iter().any(|a| a == "--foreground" || a == "-f");
+
+            // Verify login status first!
+            match WhatsAppBot::check_login_status(&config.session_db).await? {
+                Some(jid) => {
+                    info!("Verified active WhatsApp session: {jid}");
+                }
+                None => {
+                    eprintln!(
+                        "❌ No active WhatsApp session found in {:?}",
+                        config.session_db.display()
+                    );
+                    eprintln!("👉 Run 'emaki login' first to link your WhatsApp account before starting the daemon!");
+                    std::process::exit(1);
+                }
+            }
+
+            if is_foreground {
+                info!("Running in foreground daemon mode...");
+                bot.start_daemon().await?;
+            } else {
+                DaemonManager::start_background()?;
+            }
+        }
+        "run" => {
+            match WhatsAppBot::check_login_status(&config.session_db).await? {
+                Some(jid) => {
+                    info!("Verified active WhatsApp session: {jid}");
+                }
+                None => {
+                    eprintln!(
+                        "❌ No active WhatsApp session found in {:?}",
+                        config.session_db.display()
+                    );
+                    eprintln!("👉 Run 'emaki login' first to link your WhatsApp account before starting the daemon!");
+                    std::process::exit(1);
+                }
+            }
+            info!("Running in foreground daemon mode...");
             bot.start_daemon().await?;
+        }
+        "stop" => {
+            DaemonManager::stop()?;
+        }
+        "logs" => {
+            DaemonManager::logs()?;
         }
         "help" | "--help" | "-h" => {
             print_help();
@@ -69,6 +127,15 @@ async fn print_status(config: &Config) -> Result<()> {
         None => {
             println!("  ❌ WhatsApp Session : Not Paired / Missing");
             println!("  👉 Run 'emaki login' in your terminal to link WhatsApp!");
+        }
+    }
+
+    match DaemonManager::get_running_pid() {
+        Some(pid) => {
+            println!("  🤖 Daemon Process   : Running in background (PID: {pid})");
+        }
+        None => {
+            println!("  🤖 Daemon Process   : Not running in background");
         }
     }
 
@@ -208,18 +275,25 @@ fn print_help() {
 
 Commands:
   login                 Start interactive QR pairing to authenticate with WhatsApp
-  daemon                Start the background reel relay daemon (verifies session first)
-  status                Check login credentials status and 5GB cache storage usage
+  daemon [--foreground] Start the reel daemon (runs in background by default; use -f for foreground)
+  stop                  Stop the background daemon
+  logs                  Follow live background daemon logs
+  status                Check login credentials, background daemon state, and cache
   config [show|set]     View or update configuration settings (e.g. max_file_size_mb)
   whitelist [list|add|remove]
                         Manage whitelisted WhatsApp group JIDs
+  service [install|status|logs|restart|stop|start|uninstall]
+                        Manage 24/7 background systemd service
   help                  Display this help menu
 
 Examples:
   emaki login                                   # Scan QR code on your terminal
-  emaki daemon                                  # Run 24/7 background relay daemon
-  emaki status                                  # Verify WhatsApp credentials
-  emaki config                                  # Inspect active configuration
+  emaki daemon                                  # Start daemon in background (non-blocking)
+  emaki daemon --foreground                     # Run in foreground (debug/systemd)
+  emaki stop                                    # Stop the background daemon
+  emaki logs                                    # Follow live background logs
+  emaki status                                  # Verify session & check if daemon is running
+  emaki service install                         # Install & enable 24/7 auto-boot systemd service
   emaki config set max_file_size_mb 200         # Update file size limit
   emaki whitelist add 120363024819283746@g.us   # Allow only this group
   emaki whitelist list                          # List whitelisted groups

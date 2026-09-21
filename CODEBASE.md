@@ -155,6 +155,37 @@
   }
   ```
 
+### `src/infra/daemon.rs` (Role: infra, Lines: 109)
+- **Responsibility**: Detached background process spawning, PID file tracking (`~/.emaki/emaki.pid`), live process polling, graceful termination, and log tailing.
+- **Imports**: `crate::config::default_emaki_dir`, `crate::error::{EmakiError, Result}`, `std::process::{Command, Stdio}`.
+- **Types & Enums**:
+  ```rust
+  pub struct DaemonManager;
+  impl DaemonManager {
+      pub fn pid_file() -> PathBuf;
+      pub fn log_file() -> PathBuf;
+      pub fn get_running_pid() -> Option<u32>;
+      pub fn start_background() -> Result<()>;
+      pub fn stop() -> Result<()>;
+      pub fn logs() -> Result<()>;
+  }
+  ```
+
+### `src/infra/service.rs` (Role: infra, Lines: 131)
+- **Responsibility**: Systemd user service installation (`~/.config/systemd/user/emaki.service`), auto-restart, linger enablement, status checking, and uninstallation.
+- **Imports**: `crate::error::{EmakiError, Result}`, `std::process::Command`, `std::path::PathBuf`.
+- **Types & Enums**:
+  ```rust
+  pub struct ServiceManager;
+  impl ServiceManager {
+      pub fn handle_command(action: Option<&str>) -> Result<()>;
+      pub fn install() -> Result<()>;
+      pub fn uninstall() -> Result<()>;
+      pub fn status() -> Result<()>;
+      pub fn logs() -> Result<()>;
+  }
+  ```
+
 ### `src/infra/whatsapp.rs` (Role: infra, Lines: 259)
 - **Responsibility**: WhatsApp bot lifecycle, session verification, interactive login, mpsc queue worker with 3s cooldown gap, 5GB LRU cache integration, formatted caption composition, and encrypted media upload without burst reactions.
 - **Imports**: `whatsapp_rust::prelude::*`, `whatsapp_rust::download::MediaType`, `whatsapp_rust::media::{video_message, VideoOptions}`, `whatsapp_rust::upload::UploadOptions`, `tokio::sync::mpsc::{channel, Sender}`.
@@ -177,9 +208,9 @@
   }
   ```
 
-### `src/main.rs` (Role: entrypoint, Lines: 242)
-- **Responsibility**: Subcommand routing (`login`, `daemon`, `status`, `config`, `whitelist`, `help`), CLI configuration mutations, session checks, logging subscriber configuration, and graceful exit orchestration.
-- **Imports**: `tracing_subscriber::{fmt, EnvFilter}`, `infra::WhatsAppBot`, `config::Config`.
+### `src/main.rs` (Role: entrypoint, Lines: 316)
+- **Responsibility**: Subcommand routing (`login`, `daemon`, `stop`, `logs`, `status`, `config`, `whitelist`, `service`, `help`), session checks, logging subscriber configuration, and graceful exit orchestration.
+- **Imports**: `tracing_subscriber::{fmt, EnvFilter}`, `infra::{DaemonManager, ServiceManager, WhatsAppBot}`, `config::Config`.
 - **Functions**:
   ```rust
   #[tokio::main]

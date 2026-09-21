@@ -118,54 +118,41 @@ emaki login
 3. Scan the terminal QR code.
 4. Your cryptographic session keys are saved locally in `emaki.db` (SQLite).
 
-### 4. Verify & Start Daemon
-Check your session and cache status:
+### 4. Verify & Run Daemon
+
+Check authentication & daemon status from any directory:
 ```bash
 emaki status
 ```
 
-Start the background daemon:
+Start the daemon in the background (non-blocking):
 ```bash
 emaki daemon
 ```
 
+Follow live logs or stop the background daemon:
+```bash
+emaki logs   # Follow live logs
+emaki stop   # Stop background daemon
+```
+
 ---
 
-## 🐧 Run as a 24/7 Linux Service (Systemd)
+## 🐧 24/7 Auto-Start on Reboot (Systemd)
 
-### Option A: User Service (Recommended, No Root Required)
-
-Since `install.sh` installs into `~/.local/bin/emaki`, the cleanest method is a systemd user service:
-
-1. Create `~/.config/systemd/user/emaki.service`:
-```ini
-[Unit]
-Description=絵巻 (Emaki) WhatsApp Reel Daemon
-After=network.target
-
-[Service]
-Type=simple
-WorkingDirectory=%h
-ExecStart=%h/.local/bin/emaki daemon
-Restart=always
-RestartSec=5
-Environment=RUST_LOG=info
-
-[Install]
-WantedBy=default.target
-```
-
-2. Enable, start, and allow background persistence across reboots:
+Install and enable the 24/7 background service with a single command:
 ```bash
-mkdir -p ~/.config/systemd/user
-systemctl --user daemon-reload
-systemctl --user enable --now emaki
-loginctl enable-linger $USER
+emaki service install
 ```
+This automatically configures a rootless systemd user unit (`~/.config/systemd/user/emaki.service`) with auto-restart on network drop and persistent boot execution (`loginctl enable-linger`).
 
-3. View live logs:
+Service lifecycle commands:
 ```bash
-journalctl --user -u emaki -f
+emaki service status     # Check background service status
+emaki service logs       # View live systemd service logs
+emaki service restart    # Restart background daemon
+emaki service stop       # Stop service
+emaki service uninstall  # Remove systemd service
 ```
 
 ---
