@@ -67,6 +67,30 @@ fi
 
 chmod +x "$BIN_DIR/emaki"
 
+echo -e "${BLUE}🐚 Installing shell autocompletions...${NC}"
+
+# 1. Bash completion (standard XDG path auto-loaded by bash-completion)
+BASH_COMP_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/bash-completion/completions"
+mkdir -p "$BASH_COMP_DIR"
+"$BIN_DIR/emaki" completion bash > "$BASH_COMP_DIR/emaki" 2>/dev/null || true
+
+# 2. Zsh completion (standard user paths)
+ZSH_COMP_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/zsh/site-functions"
+mkdir -p "$ZSH_COMP_DIR"
+"$BIN_DIR/emaki" completion zsh > "$ZSH_COMP_DIR/_emaki" 2>/dev/null || true
+if [ -d "$HOME/.zfunc" ]; then
+    "$BIN_DIR/emaki" completion zsh > "$HOME/.zfunc/_emaki" 2>/dev/null || true
+fi
+
+# 3. Fish completion
+if [ -d "$HOME/.config/fish" ] || command -v fish >/dev/null 2>&1; then
+    FISH_COMP_DIR="$HOME/.config/fish/completions"
+    mkdir -p "$FISH_COMP_DIR"
+    "$BIN_DIR/emaki" completion fish > "$FISH_COMP_DIR/emaki.fish" 2>/dev/null || true
+fi
+
+echo -e "  ${GREEN}✔ Shell autocompletions installed (Bash, Zsh, Fish)${NC}\n"
+
 echo -e "${GREEN}✨ 絵巻 (Emaki) ${INSTALLED_VER} installed successfully to ${BIN_DIR}/emaki!${NC}\n"
 
 if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
@@ -75,5 +99,6 @@ if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
     echo -e "   export PATH=\"\$HOME/.local/bin:\$PATH\"\n"
 fi
 
-echo -e "${BOLD}To start the daemon:${NC}"
-echo -e "  emaki\n"
+echo -e "${BOLD}To start using Emaki:${NC}"
+echo -e "  emaki status           # Verify authentication"
+echo -e "  emaki service install  # Run 24/7 in background with auto-restart\n"

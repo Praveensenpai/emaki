@@ -4,7 +4,7 @@
 
 ## 1. System Topology & Data Flow
 ```text
-[CLI: login | daemon | status | config | whitelist]
+[CLI: login | daemon | stop | logs | status | config | whitelist | service | completion]
        │
        ├── login  ──> [WhatsAppBot::start_login] (Interactive QR pairing -> exits on auth)
        ├── status ──> [WhatsAppBot::check_login_status] + Cache size computation
@@ -155,7 +155,18 @@
   }
   ```
 
-### `src/infra/daemon.rs` (Role: infra, Lines: 109)
+### `src/infra/completion.rs` (Role: infra, Lines: 184)
+- **Responsibility**: Shell autocompletion generation for Bash, Zsh, and Fish covering all commands, subcommands, and config keys.
+- **Imports**: `crate::error::{EmakiError, Result}`.
+- **Types & Enums**:
+  ```rust
+  pub struct CompletionGenerator;
+  impl CompletionGenerator {
+      pub fn generate(shell: &str) -> Result<String>;
+  }
+  ```
+
+### `src/infra/daemon.rs` (Role: infra, Lines: 114)
 - **Responsibility**: Detached background process spawning, PID file tracking (`~/.emaki/emaki.pid`), live process polling, graceful termination, and log tailing.
 - **Imports**: `crate::config::default_emaki_dir`, `crate::error::{EmakiError, Result}`, `std::process::{Command, Stdio}`.
 - **Types & Enums**:
@@ -208,9 +219,9 @@
   }
   ```
 
-### `src/main.rs` (Role: entrypoint, Lines: 316)
-- **Responsibility**: Subcommand routing (`login`, `daemon`, `stop`, `logs`, `status`, `config`, `whitelist`, `service`, `help`), session checks, logging subscriber configuration, and graceful exit orchestration.
-- **Imports**: `tracing_subscriber::{fmt, EnvFilter}`, `infra::{DaemonManager, ServiceManager, WhatsAppBot}`, `config::Config`.
+### `src/main.rs` (Role: entrypoint, Lines: 323)
+- **Responsibility**: Subcommand routing (`login`, `daemon`, `stop`, `logs`, `status`, `config`, `whitelist`, `service`, `completion`, `help`), session checks, logging subscriber configuration, and graceful exit orchestration.
+- **Imports**: `tracing_subscriber::{fmt, EnvFilter}`, `infra::{CompletionGenerator, DaemonManager, ServiceManager, WhatsAppBot}`, `config::Config`.
 - **Functions**:
   ```rust
   #[tokio::main]

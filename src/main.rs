@@ -5,7 +5,7 @@ mod infra;
 
 use config::Config;
 use error::Result;
-use infra::{DaemonManager, ServiceManager, WhatsAppBot};
+use infra::{CompletionGenerator, DaemonManager, ServiceManager, WhatsAppBot};
 use tracing::info;
 use tracing_subscriber::{fmt, EnvFilter};
 
@@ -20,7 +20,9 @@ async fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let command = args.get(1).map(|s| s.as_str()).unwrap_or("daemon");
 
-    print_banner();
+    if command != "completion" {
+        print_banner();
+    }
 
     let mut config = Config::load_auto();
     config.ensure_directories()?;
@@ -101,6 +103,11 @@ async fn main() -> Result<()> {
         }
         "logs" => {
             DaemonManager::logs()?;
+        }
+        "completion" => {
+            let shell = args.get(2).map(|s| s.as_str()).unwrap_or("bash");
+            let script = CompletionGenerator::generate(shell)?;
+            print!("{script}");
         }
         "help" | "--help" | "-h" => {
             print_help();
